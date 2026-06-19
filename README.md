@@ -1,0 +1,154 @@
+# codexmcp
+
+> 一个极薄的 Go MCP Server，让 **Claude Code** 与本机 **Codex CLI** 协作：Claude 作架构师/审查者，Codex 作底层实现者。
+
+Claude 拿到需求后，多轮拉起 Codex **只读讨论**方案，定稿并经你确认后，再派 Codex **写模式实现**，最后由 Claude 对照方案验收。讨论循环由 Claude 的 agent loop 驱动；本 Server 只负责「单轮执行 Codex + 会话续接 + 安全护栏」。
+
+## 特性
+
+- **单一 `codex` 工具**，参数直映射 `codex exec` CLI。
+- **会话续接**：讨论复用同一 `session_id`（Codex 记得上下文），实现时另起干净会话。
+- **三层安全护栏**：写操作需显式确认 + PreToolUse hook 强制用户批准 + 默认只读。
+- **轮次硬熔断**：单会话讨论轮次上限，防 Claude↔Codex 无限互掐烧 token。
+- **单二进制、零外部依赖**，进程随用随起、级联清理子进程。
+
+跨平台：纯 Go 实现，支持 **macOS / Linux / Windows**（amd64 与 arm64）。
+
+## 依赖
+
+- [Go](https://go.dev/) ≥ 1.23（仅编译时）
+- [Codex CLI](https://github.com/openai/codex)（`codex` 在 PATH 中，已 `codex login`；Windows 上 `codex.cmd`/`codex.exe` 同样由 PATH 解析）
+- [Claude Code](https://claude.com/claude-code)
+
+## 安装
+
+```bash
+git clone <repo> && cd codexMcp
+make build      # 自动识别当前系统/架构，Windows 自动产出 codexmcp.exe
+```
+
+得到二进制 `./codexmcp`（Windows 为 `codexmcp.exe`）。记下其**绝对路径**，下面用 `<BIN>` 代指。
+
+需要为别的平台/架构一次性出全套包：
+
+```bash
+make dist        # 在 ./dist 生成 linux/darwin/windows × amd64/arm64
+```
+
+> 没装 make 时可直接 `go build -o codexmcp .`，或用 `GOOS=linux GOARCH=arm64 go build ...` 交叉编译。
+
+注册到 Claude Code：
+
+```bash
+claude mcp add codex-collab -s user \
+  -e CODEX_MCP_MAX_ROUNDS=6 \
+  -e CODEX_MCP_TIMEOUT=300 \
+  -- <BIN>
+```
+
+验证：
+
+```bash
+claude mcp list      # 显示 codex-collab: connected
+```
+
+## 配置
+
+### 环境变量
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `CODEX_MCP_MAX_ROUNDS` | 6 | 单会话最大讨论轮次（硬熔断） |
+| `CODEX_MCP_TIMEOUT` | 300 | 单次 codex 调用超时（秒） |
+| `CODEX_MCP_SESSION_TTL` | 24 | 会话轮次计数保留时长（小时） |
+
+### 第二层护栏：PreToolUse Hook（推荐）
+
+让 Claude Code 在 Codex 写文件前强制弹出用户确认。在 `~/.claude/settings.json` 加：
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__codex-collab__codex",
+        "hooks": [
+          { "type": "command", "command": "<BIN> hook" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+同一个二进制的 `hook` 子命令：读取本次调用参数，当 `sandbox` 为写模式时返回 `ask` 决策，只读调用直接放行。
+
+> Windows 路径写进 JSON 时反斜杠要转义（`C:\\tools\\codexmcp.exe`）或直接用正斜杠（`C:/tools/codexmcp.exe`）。配置目录在 Windows 为 `%USERPROFILE%\.claude\`。
+
+### 第三层护栏：协作协议
+
+**方式 A — slash 命令（推荐）**：把 `.claude/commands/codex-collab.md` 复制到 `~/.claude/commands/`（Windows：`%USERPROFILE%\.claude\commands\`）即可全局使用 `/codex-collab`。
+
+**方式 B — 常驻规则**：把下面片段加入项目 `CLAUDE.md`，让 Claude 始终遵守协作流程：
+
+```markdown
+## 与 Codex 协作
+涉及代码实现时，通过 codex 工具协作，按五阶段执行、不得跳步：
+1. 拆解需求，列要点与假设。
+2. 只读讨论：sandbox=read-only，复用同一 session_id 多轮迭代（≤6 轮）。
+3. 定稿并停下等用户确认，未确认不实现。
+4. 实现：用户确认后，新起会话、sandbox=workspace-write、confirmed=true 派 Codex；
+   PROMPT 前置规则——简化优先、外科手术式改动、实现后自检。
+5. 对照定稿方案逐项验收。
+```
+
+## 使用
+
+最常用——一条命令走完全流程：
+
+```
+/codex-collab 优化 ./src/sort.go 的排序性能
+```
+
+Claude 会：只读多轮与 Codex 讨论 → 给出《最终方案》并问你确认 → 你确认后派 Codex 写文件（hook 再弹一次批准）→ 对照方案验收并汇报。
+
+也可让 Claude 直接调 `codex` 工具，参数见下。
+
+## `codex` 工具参考
+
+### 入参
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `PROMPT` | string | 是 | — | 发给 Codex 的指令 |
+| `cd` | string | 否 | `.` | 工作目录（仅新会话生效） |
+| `sandbox` | string | 否 | `read-only` | `read-only` / `workspace-write` / `danger-full-access`（仅新会话生效） |
+| `session_id` | string | 否 | — | 传入续接会话；不传新建 |
+| `skip_git_repo_check` | bool | 否 | false | 允许非 git 仓库 |
+| `model` | string | 否 | — | 指定 Codex 模型 |
+| `return_all_messages` | bool | 否 | false | 返回完整推理/工具调用事件 |
+| `confirmed` | bool | 否 | false | 写模式必须为 true，否则拒绝 |
+
+> 注：`session_id` 续接时 `sandbox`/`cd` 由原会话锁定，传了也不生效——这正好保证讨论会话始终只读。
+
+### 返回（JSON）
+
+| 字段 | 说明 |
+|---|---|
+| `success` | 本轮是否成功 |
+| `session_id` | 会话 id（新建时回传，供后续续接） |
+| `output` | Codex 最终回复 / patch；`return_all_messages=true` 时为完整事件流 |
+| `round` | 本会话已进行轮次 |
+| `rounds_remaining` | 剩余可用轮次 |
+| `error` | 失败时的结构化错误 |
+
+## 开发
+
+```bash
+go test ./...      # 单元测试
+go build -o codexmcp .
+```
+
+## License
+
+MIT
