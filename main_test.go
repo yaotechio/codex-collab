@@ -26,6 +26,23 @@ func TestParseEvents(t *testing.T) {
 	}
 }
 
+// fmtEvent turns JSONL lines into short progress lines; noise lines drop to "".
+func TestFmtEvent(t *testing.T) {
+	cases := map[string]string{
+		`{"type":"thread.started","thread_id":"x1"}`:                              "▶ session x1",
+		`{"type":"item.completed","item":{"type":"agent_message","text":"hi"}}`:   "💬 hi",
+		`{"type":"item.completed","item":{"type":"command_execution","text":""}}`: "· command_execution",
+		`{"type":"turn.completed"}`:                                               "✓ done",
+		`{"type":"turn.started"}`:                                                 "",
+		`not json`:                                                                "",
+	}
+	for in, want := range cases {
+		if got := fmtEvent([]byte(in)); got != want {
+			t.Errorf("fmtEvent(%s) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // round counter: new session always allowed; resume capped at max.
 func TestRounds(t *testing.T) {
 	c := &rounds{data: map[string]*entry{}, max: 2, ttl: time.Hour}

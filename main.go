@@ -10,12 +10,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -25,6 +28,8 @@ import (
 var (
 	timeout time.Duration
 	counter *rounds
+	// errIdle: codex produced no output for `timeout` and was killed as stuck.
+	errIdle = errors.New("idle timeout")
 )
 
 func main() {
@@ -68,6 +73,7 @@ type out struct {
 	Output          string `json:"output,omitempty"`
 	Round           int    `json:"round,omitempty"`
 	RoundsRemaining int    `json:"rounds_remaining"`
+	LogFile         string `json:"log_file,omitempty"`
 	Error           string `json:"error,omitempty"`
 }
 
@@ -95,41 +101,56 @@ func handle(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, 
 		return result(out{Success: false, SessionID: sessionID, RoundsRemaining: 0, Error: reason})
 	}
 
-	cctx, cancel := context.WithTimeout(ctx, timeout)
+	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// One log file per session so concurrent windows don't interleave. Resume
+	// rounds reuse the session's file; a fresh session gets a unique temp tag.
+	tag := sessionID
+	if tag == "" {
+		tag = "new-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	lp := logPath(tag)
+
 	sid, msg, raw, stderr, err := runCodex(cctx, params{
-		prompt: prompt, cd: cd, sandbox: sandbox, sessionID: sessionID, model: model, skipGit: skipGit,
+		prompt: prompt, cd: cd, sandbox: sandbox, sessionID: sessionID, model: model, skipGit: skipGit, logFile: lp,
 	})
 	if err != nil {
 		emsg := strings.TrimSpace(stderr)
-		if cctx.Err() == context.DeadlineExceeded {
-			emsg = fmt.Sprintf("codex 执行超时（%s）", timeout)
+		if errors.Is(err, errIdle) {
+			emsg = fmt.Sprintf("codex 静默超过 %s 无任何输出，已判定为卡死并终止", timeout)
 		} else if emsg == "" {
 			emsg = err.Error()
 		} else if len(emsg) > 800 {
 			emsg = emsg[len(emsg)-800:]
 		}
-		return result(out{Success: false, SessionID: sid, Error: "codex 执行失败：" + emsg})
+		return result(out{Success: false, SessionID: sid, LogFile: lp, Error: "codex 执行失败：" + emsg})
 	}
 
 	finalID := sid
 	if finalID == "" {
 		finalID = sessionID
 	}
+	// New session: rename the temp-tagged log to the real session id so every
+	// log file is named codexmcp-<sessionId>.log. (codex has exited; file closed.)
+	if sessionID == "" && sid != "" {
+		if np := logPath(sid); os.Rename(lp, np) == nil {
+			lp = np
+		}
+	}
 	round, remaining := counter.commit(finalID)
 	body := msg
 	if returnAll {
 		body = raw
 	}
-	return result(out{Success: true, SessionID: finalID, Output: body, Round: round, RoundsRemaining: remaining})
+	return result(out{Success: true, SessionID: finalID, Output: body, Round: round, RoundsRemaining: remaining, LogFile: lp})
 }
 
 // ---- codex invocation ----
 
 type params struct {
-	prompt, cd, sandbox, sessionID, model string
-	skipGit                               bool
+	prompt, cd, sandbox, sessionID, model, logFile string
+	skipGit                                        bool
 }
 
 func runCodex(ctx context.Context, p params) (sessionID, lastMsg, raw, stderr string, err error) {
@@ -154,14 +175,107 @@ func runCodex(ctx context.Context, p params) (sessionID, lastMsg, raw, stderr st
 	// codex's sandbox grandchildren are seen to orphan.
 	cmd := exec.CommandContext(ctx, "codex", args...)
 	cmd.Stdin = strings.NewReader(p.prompt)
-	var so, se bytes.Buffer
-	cmd.Stdout = &so
+	var se bytes.Buffer
 	cmd.Stderr = &se
-	err = cmd.Run()
+	pipe, perr := cmd.StdoutPipe()
+	if perr != nil {
+		return "", "", "", "", perr
+	}
+
+	// tee codex's JSONL stdout to a log file as it streams, so the user can
+	// `tail -f` it and see Codex is alive instead of staring at a spinner.
+	// ponytail: single fixed file, append mode — `tail -f` follows the latest run.
+	lf, _ := os.OpenFile(p.logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if lf != nil {
+		defer lf.Close()
+		fmt.Fprintf(lf, "\n==== %s  sandbox=%s  cwd=%s ====\n>> %s\n",
+			time.Now().Format("15:04:05"), p.sandbox, p.cd, firstLine(p.prompt))
+	}
+
+	if err = cmd.Start(); err != nil {
+		return
+	}
+
+	// Idle watchdog: codex reads files one-by-one and can run well past a fixed
+	// total timeout while genuinely working. It emits a JSONL event per step, so
+	// treat *silence*, not elapsed time, as "stuck": reset the deadline on every
+	// line and only kill after `timeout` with zero output.
+	// ponytail: no absolute cap — round counter bounds the conversation; add one
+	// here if a single exec is ever seen to stream forever.
+	var idledOut atomic.Bool
+	wd := time.AfterFunc(timeout, func() { idledOut.Store(true); _ = cmd.Process.Kill() })
+	defer wd.Stop()
+
+	var so bytes.Buffer
+	sc := bufio.NewScanner(pipe)
+	sc.Buffer(make([]byte, 1<<20), 16<<20)
+	for sc.Scan() {
+		wd.Reset(timeout)
+		so.Write(sc.Bytes())
+		so.WriteByte('\n')
+		if lf != nil {
+			if s := fmtEvent(sc.Bytes()); s != "" {
+				fmt.Fprintln(lf, s)
+			}
+		}
+	}
+	err = cmd.Wait()
+	if idledOut.Load() {
+		err = errIdle
+	}
 
 	sessionID, lastMsg, raw = parseEvents(so.Bytes())
 	stderr = se.String()
 	return
+}
+
+// logPath maps a session tag to its own log file so concurrent sessions never
+// interleave. tag is sanitized to keep it a single safe filename component.
+func logPath(tag string) string {
+	safe := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' {
+			return r
+		}
+		return '_'
+	}, tag)
+	return filepath.Join(os.TempDir(), "codexmcp-"+safe+".log")
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	if len(s) > 120 {
+		s = s[:120] + "…"
+	}
+	return s
+}
+
+// fmtEvent turns one JSONL line into a short human-readable progress line.
+func fmtEvent(b []byte) string {
+	var e codexEvent
+	if json.Unmarshal(b, &e) != nil {
+		return ""
+	}
+	switch e.Type {
+	case "thread.started":
+		return "▶ session " + e.ThreadID
+	case "item.completed":
+		t := e.Item.Text
+		if len(t) > 200 {
+			t = t[:200] + "…"
+		}
+		if e.Item.Type == "agent_message" {
+			return "💬 " + t
+		}
+		if t != "" {
+			return "· " + e.Item.Type + ": " + t
+		}
+		return "· " + e.Item.Type
+	case "turn.completed":
+		return "✓ done"
+	}
+	return ""
 }
 
 type codexEvent struct {
