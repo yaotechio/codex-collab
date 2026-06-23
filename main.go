@@ -1,14 +1,17 @@
 // codexmcp: a thin MCP server bridging Claude Code and the local Codex CLI.
 //
-// Two modes:
-//   codexmcp          -> run as a stdio MCP server exposing the `codex` tool
-//   codexmcp hook     -> PreToolUse hook: ask for confirmation on write-mode calls
+// Three modes:
+//
+//	codexmcp          -> run as a stdio MCP server exposing the `codex` tool
+//	codexmcp hook     -> PreToolUse hook: ask for confirmation on write-mode calls
+//	codexmcp fmt      -> format `codex exec --json` JSONL for Bash pipes
 package main
 
 import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,6 +38,10 @@ var (
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "hook" {
 		runHook()
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "fmt" {
+		runFmt()
 		return
 	}
 
@@ -70,7 +77,8 @@ func main() {
 type out struct {
 	Success         bool   `json:"success"`
 	SessionID       string `json:"session_id,omitempty"`
-	Output          string `json:"output,omitempty"`
+	Output          []string `json:"output,omitempty"` // codex 最终回复，按行拆分以便展开时逐行显示
+	Process         []string `json:"process,omitempty"` // codex 的思考/执行过程轨迹（每元素一步，展开时各占一行）
 	Round           int    `json:"round,omitempty"`
 	RoundsRemaining int    `json:"rounds_remaining"`
 	LogFile         string `json:"log_file,omitempty"`
@@ -104,6 +112,24 @@ func handle(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, 
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// Live progress: if the client passed a progressToken, relay each codex
+	// event to it as a notifications/progress so Claude Code shows codex's
+	// steps under the spinner instead of a blank wait. Same lines as the log.
+	// ponytail: dropped notifications (blocked channel) are fine — log is truth.
+	var notify func(string)
+	if req.Params.Meta != nil && req.Params.Meta.ProgressToken != nil {
+		if srv := server.ServerFromContext(ctx); srv != nil {
+			token := req.Params.Meta.ProgressToken
+			var n float64
+			notify = func(msg string) {
+				n++
+				_ = srv.SendNotificationToClient(ctx, "notifications/progress", map[string]any{
+					"progressToken": token, "progress": n, "message": msg,
+				})
+			}
+		}
+	}
+
 	// One log file per session so concurrent windows don't interleave. Resume
 	// rounds reuse the session's file; a fresh session gets a unique temp tag.
 	tag := sessionID
@@ -112,8 +138,8 @@ func handle(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, 
 	}
 	lp := logPath(tag)
 
-	sid, msg, raw, stderr, err := runCodex(cctx, params{
-		prompt: prompt, cd: cd, sandbox: sandbox, sessionID: sessionID, model: model, skipGit: skipGit, logFile: lp,
+	sid, msg, raw, stderr, process, err := runCodex(cctx, params{
+		prompt: prompt, cd: cd, sandbox: sandbox, sessionID: sessionID, model: model, skipGit: skipGit, logFile: lp, notify: notify,
 	})
 	if err != nil {
 		emsg := strings.TrimSpace(stderr)
@@ -124,7 +150,9 @@ func handle(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, 
 		} else if len(emsg) > 800 {
 			emsg = emsg[len(emsg)-800:]
 		}
-		return result(out{Success: false, SessionID: sid, LogFile: lp, Error: "codex 执行失败：" + emsg})
+		// even on failure, hand back whatever process trace we captured so the
+		// user sees how far codex got before dying.
+		return result(out{Success: false, SessionID: sid, Process: process, LogFile: lp, Error: "codex 执行失败：" + emsg})
 	}
 
 	finalID := sid
@@ -143,7 +171,7 @@ func handle(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, 
 	if returnAll {
 		body = raw
 	}
-	return result(out{Success: true, SessionID: finalID, Output: body, Round: round, RoundsRemaining: remaining, LogFile: lp})
+	return result(out{Success: true, SessionID: finalID, Output: splitLines(body), Process: process, Round: round, RoundsRemaining: remaining, LogFile: lp})
 }
 
 // ---- codex invocation ----
@@ -151,9 +179,10 @@ func handle(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, 
 type params struct {
 	prompt, cd, sandbox, sessionID, model, logFile string
 	skipGit                                        bool
+	notify                                         func(string) // per-event progress relay; nil if client wants none
 }
 
-func runCodex(ctx context.Context, p params) (sessionID, lastMsg, raw, stderr string, err error) {
+func runCodex(ctx context.Context, p params) (sessionID, lastMsg, raw, stderr string, process []string, err error) {
 	var args []string
 	if p.sessionID == "" {
 		// new session: sandbox & cwd are set here and locked for the session's life
@@ -162,6 +191,7 @@ func runCodex(ctx context.Context, p params) (sessionID, lastMsg, raw, stderr st
 		// resume: reads PROMPT from stdin via `-`; sandbox/cwd inherited from the session
 		args = []string{"exec", "resume", p.sessionID, "-", "--json"}
 	}
+	args = append(args, "-c", "model_reasoning_summary=detailed")
 	if p.model != "" {
 		args = append(args, "-m", p.model)
 	}
@@ -179,7 +209,7 @@ func runCodex(ctx context.Context, p params) (sessionID, lastMsg, raw, stderr st
 	cmd.Stderr = &se
 	pipe, perr := cmd.StdoutPipe()
 	if perr != nil {
-		return "", "", "", "", perr
+		return "", "", "", "", nil, perr
 	}
 
 	// tee codex's JSONL stdout to a log file as it streams, so the user can
@@ -213,9 +243,16 @@ func runCodex(ctx context.Context, p params) (sessionID, lastMsg, raw, stderr st
 		wd.Reset(timeout)
 		so.Write(sc.Bytes())
 		so.WriteByte('\n')
-		if lf != nil {
-			if s := fmtEvent(sc.Bytes()); s != "" {
+		if s := fmtEvent(sc.Bytes()); s != "" {
+			// process accumulates the same human-readable lines we stream live, so
+			// the final result carries codex's full thinking/execution trace — one
+			// element per step so it renders one-per-line when the result expands.
+			process = append(process, s)
+			if lf != nil {
 				fmt.Fprintln(lf, s)
+			}
+			if p.notify != nil {
+				p.notify(s)
 			}
 		}
 	}
@@ -241,6 +278,33 @@ func logPath(tag string) string {
 	return filepath.Join(os.TempDir(), "codexmcp-"+safe+".log")
 }
 
+func runFmt() {
+	var sessionID, lastMsg string
+	sc := bufio.NewScanner(os.Stdin)
+	sc.Buffer(make([]byte, 1<<20), 16<<20)
+	for sc.Scan() {
+		if s := fmtEvent(sc.Bytes()); s != "" {
+			fmt.Fprintln(os.Stdout, s)
+		}
+		var e codexEvent
+		if json.Unmarshal(sc.Bytes(), &e) != nil {
+			continue
+		}
+		switch e.Type {
+		case "thread.started":
+			if e.ThreadID != "" {
+				sessionID = e.ThreadID
+			}
+		case "item.completed":
+			if e.Item.Type == "agent_message" {
+				lastMsg = e.Item.Text
+			}
+		}
+	}
+	fmt.Fprintln(os.Stdout, "__CODEXMCP_SESSION__="+sessionID)
+	fmt.Fprintln(os.Stdout, "__CODEXMCP_FINAL_B64__="+base64.StdEncoding.EncodeToString([]byte(lastMsg)))
+}
+
 func firstLine(s string) string {
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = s[:i]
@@ -249,6 +313,12 @@ func firstLine(s string) string {
 		s = s[:120] + "…"
 	}
 	return s
+}
+
+// oneLine flattens any internal newlines/whitespace runs into single spaces so
+// a trace element stays strictly one line when the result is expanded.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // fmtEvent turns one JSONL line into a short human-readable progress line.
@@ -260,13 +330,25 @@ func fmtEvent(b []byte) string {
 	switch e.Type {
 	case "thread.started":
 		return "▶ session " + e.ThreadID
+	case "item.started":
+		if e.Item.Type == "command_execution" && e.Item.Command != "" {
+			return "$ " + firstLine(e.Item.Command)
+		}
+		return ""
 	case "item.completed":
-		t := e.Item.Text
+		// collapse internal newlines/whitespace so each trace element is one line
+		t := oneLine(e.Item.Text)
 		if len(t) > 200 {
 			t = t[:200] + "…"
 		}
 		if e.Item.Type == "agent_message" {
 			return "💬 " + t
+		}
+		if e.Item.Type == "reasoning" {
+			return "🤔 " + t
+		}
+		if e.Item.Type == "command_execution" {
+			return ""
 		}
 		if t != "" {
 			return "· " + e.Item.Type + ": " + t
@@ -282,8 +364,9 @@ type codexEvent struct {
 	Type     string `json:"type"`
 	ThreadID string `json:"thread_id"`
 	Item     struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type    string `json:"type"`
+		Text    string `json:"text"`
+		Command string `json:"command"`
 	} `json:"item"`
 }
 
@@ -412,7 +495,16 @@ func getBool(m map[string]any, k string, def bool) bool {
 	return def
 }
 
+// splitLines breaks a multi-line string into per-line elements so it renders
+// one-per-line when the JSON result is expanded; empty input stays nil.
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
+}
+
 func result(o out) (*mcp.CallToolResult, error) {
-	b, _ := json.Marshal(o)
+	b, _ := json.MarshalIndent(o, "", "  ")
 	return mcp.NewToolResultText(string(b)), nil
 }

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"io"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -29,17 +32,66 @@ func TestParseEvents(t *testing.T) {
 // fmtEvent turns JSONL lines into short progress lines; noise lines drop to "".
 func TestFmtEvent(t *testing.T) {
 	cases := map[string]string{
-		`{"type":"thread.started","thread_id":"x1"}`:                              "▶ session x1",
-		`{"type":"item.completed","item":{"type":"agent_message","text":"hi"}}`:   "💬 hi",
-		`{"type":"item.completed","item":{"type":"command_execution","text":""}}`: "· command_execution",
-		`{"type":"turn.completed"}`:                                               "✓ done",
-		`{"type":"turn.started"}`:                                                 "",
-		`not json`:                                                                "",
+		`{"type":"thread.started","thread_id":"x1"}`:                                            "▶ session x1",
+		`{"type":"item.started","item":{"type":"command_execution","command":"ls -la\nfoo"}}`:   "$ ls -la",
+		`{"type":"item.completed","item":{"type":"agent_message","text":"hi"}}`:                 "💬 hi",
+		`{"type":"item.completed","item":{"type":"reasoning","text":"thinking"}}`:               "🤔 thinking",
+		`{"type":"item.completed","item":{"type":"reasoning","text":"line1\n\nline2"}}`:         "🤔 line1 line2",
+		`{"type":"item.completed","item":{"type":"command_execution","text":""}}`:               "",
+		`{"type":"item.completed","item":{"type":"command_execution","command":"ls -la\nfoo"}}`: "",
+		`{"type":"turn.completed"}`: "✓ done",
+		`{"type":"turn.started"}`:   "",
+		`not json`:                  "",
 	}
 	for in, want := range cases {
 		if got := fmtEvent([]byte(in)); got != want {
 			t.Errorf("fmtEvent(%s) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestRunFmtFooter(t *testing.T) {
+	stdin := `{"type":"thread.started","thread_id":"sid-1"}
+{"type":"item.completed","item":{"type":"agent_message","text":"final"}}`
+
+	oldIn, oldOut := os.Stdin, os.Stdout
+	defer func() {
+		os.Stdin = oldIn
+		os.Stdout = oldOut
+	}()
+
+	inR, inW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inW.WriteString(stdin); err != nil {
+		t.Fatal(err)
+	}
+	if err := inW.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	os.Stdin = inR
+	os.Stdout = outW
+	runFmt()
+	if err := outW.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	b, err := io.ReadAll(outR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(b)
+	if !strings.Contains(got, "__CODEXMCP_SESSION__=sid-1\n") {
+		t.Errorf("missing session footer in %q", got)
+	}
+	if !strings.Contains(got, "__CODEXMCP_FINAL_B64__=ZmluYWw=\n") {
+		t.Errorf("missing final footer in %q", got)
 	}
 }
 
