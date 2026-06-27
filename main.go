@@ -1,10 +1,10 @@
-// codexmcp: a thin MCP server bridging Claude Code and the local Codex CLI.
+// codex-collab: a thin MCP server bridging Claude Code and the local Codex CLI.
 //
 // Three modes:
 //
-//	codexmcp          -> run as a stdio MCP server exposing the `codex` tool
-//	codexmcp hook     -> PreToolUse hook: ask for confirmation on write-mode calls
-//	codexmcp fmt      -> format `codex exec --json` JSONL for Bash pipes
+//	codex-collab          -> run as a stdio MCP server exposing the `codex` tool
+//	codex-collab hook     -> PreToolUse hook: ask for confirmation on write-mode calls
+//	codex-collab fmt      -> format `codex exec --json` JSONL for Bash pipes
 package main
 
 import (
@@ -33,6 +33,9 @@ var (
 	counter *rounds
 	// errIdle: codex produced no output for `timeout` and was killed as stuck.
 	errIdle = errors.New("idle timeout")
+	// version is the server version, injected at build time via
+	// -ldflags "-X main.version=X.Y.Z"; defaults to "dev" for local builds.
+	version = "dev"
 )
 
 func main() {
@@ -52,7 +55,7 @@ func main() {
 		ttl:  time.Duration(envIntMin("CODEX_MCP_SESSION_TTL", 24, 1)) * time.Hour,
 	}
 
-	s := server.NewMCPServer("codex-collab", "0.1.0")
+	s := server.NewMCPServer("codex-collab", version)
 	tool := mcp.NewTool("codex",
 		mcp.WithDescription("调用本机 Codex CLI 进行底层代码分析/实现。协作约定：先用 sandbox=read-only 多轮讨论方案（复用同一 session_id），定稿并经用户确认后，再用 sandbox=workspace-write 且 confirmed=true（不传 session_id，新起会话）派 Codex 实现，最后对照方案验收。"),
 		mcp.WithString("PROMPT", mcp.Required(), mcp.Description("发给 Codex 的任务指令")),
@@ -67,7 +70,7 @@ func main() {
 	s.AddTool(tool, handle)
 
 	if err := server.ServeStdio(s); err != nil {
-		fmt.Fprintln(os.Stderr, "codexmcp server error:", err)
+		fmt.Fprintln(os.Stderr, "codex-collab server error:", err)
 		os.Exit(1)
 	}
 }
@@ -176,7 +179,7 @@ func handle(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, 
 		return result(out{Success: false, Process: process, LogFile: lp, Error: "codex 未返回会话 id（thread.started 缺失），无法续接"})
 	}
 	// New session: rename the temp-tagged log to the real session id so every
-	// log file is named codexmcp-<sessionId>.log. (codex has exited; file closed.)
+	// log file is named codex-collab-<sessionId>.log. (codex has exited; file closed.)
 	if sessionID == "" && sid != "" {
 		if np := logPath(sid); os.Rename(lp, np) == nil {
 			lp = np
@@ -297,7 +300,7 @@ func logPath(tag string) string {
 		}
 		return '_'
 	}, tag)
-	return filepath.Join(os.TempDir(), "codexmcp-"+safe+".log")
+	return filepath.Join(os.TempDir(), "codex-collab-"+safe+".log")
 }
 
 func runFmt() {
@@ -324,7 +327,7 @@ func runFmt() {
 		}
 	}
 	if err := sc.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "codexmcp fmt warning:", err)
+		fmt.Fprintln(os.Stderr, "codex-collab fmt warning:", err)
 	}
 	fmt.Fprintln(os.Stdout, "__CODEXMCP_SESSION__="+sessionID)
 	fmt.Fprintln(os.Stdout, "__CODEXMCP_FINAL_B64__="+base64.StdEncoding.EncodeToString([]byte(lastMsg)))

@@ -1,0 +1,29 @@
+{
+  "name": "@yaotechio/codex-collab",
+  "version": "0.2.0",
+  "description": "Claude↔Codex collaboration MCP server — Claude (architect/reviewer) drives the local Codex CLI (implementer). Ships a prebuilt Go binary; no Go toolchain required.",
+  "bin": {
+    "codex-collab": "shim.js"
+  },
+  "files": [
+    "shim.js"
+  ],
+  "optionalDependencies": {
+    "@yaotechio/codex-collab-darwin-arm64": "0.2.0",
+    "@yaotechio/codex-collab-darwin-x64": "0.2.0",
+    "@yaotechio/codex-collab-linux-x64": "0.2.0",
+    "@yaotechio/codex-collab-linux-arm64": "0.2.0",
+    "@yaotechio/codex-collab-win32-x64": "0.2.0",
+    "@yaotechio/codex-collab-win32-arm64": "0.2.0"
+  },
+  "keywords": ["codex", "mcp", "claude-code", "claude", "collaboration", "code-review"],
+  "license": "MIT",
+  "homepage": "https://github.com/yaotechio/codex-collab",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yaotechio/codex-collab.git"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}

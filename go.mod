@@ -1,4 +1,4 @@
-module github.com/yaotechio/codexmcp
+module github.com/yaotechio/codex-collab
 
 go 1.23
 

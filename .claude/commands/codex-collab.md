@@ -11,7 +11,7 @@ $ARGUMENTS
 - **Working dir** — pass `cd=<project root absolute path>` on every `codex` call (your current working directory; run `pwd` if unsure), so Codex reads the project's own `AGENTS.md`.
 - **Language** — speak to the user in Chinese; write every `codex` PROMPT in English. *But* always carry the user's original requirement to Codex **verbatim and untranslated** (every round, whatever language they wrote it in) — only your own analysis is in English. Data (filenames, code, commands, logs, quoted text) stays verbatim. The server can't force Codex's reply language; if it replies otherwise, read it and relay in Chinese.
 - **Don't echo the trace** — don't re-paste Codex's reasoning in the conversation; the user can open the tool-call return themselves when needed.
-- **Live streaming** — to watch Codex think live, run it read-only via Bash: `codex exec --json … | <codexmcp binary> fmt` (the MCP tool only returns after it finishes).
+- **Live streaming** — to watch Codex think live, run it read-only via Bash: `codex exec --json … | <codex-collab binary> fmt` (the MCP tool only returns after it finishes).
 - **Plan = numbered criteria** — the Final Plan is the single source of truth: written in Chinese as stable IDs `SC-1, SC-2, …`. The English implementation prompt is a throwaway translation of those IDs (IDs preserved); verification maps results back by ID.
 
 ## 1 · Decompose

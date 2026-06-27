@@ -1,3 +1,6 @@
-/codexmcp
-/codexmcp.exe
+/codex-collab
+/codex-collab.exe
 /dist/
+.DS_Store
+.idea/
+node_modules/
