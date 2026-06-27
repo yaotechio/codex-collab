@@ -30,8 +30,8 @@ jobs:
           V: ${{ steps.ver.outputs.version }}
         run: |
           grep -q "\"version\": \"$V\"" .claude-plugin/plugin.json || { echo "plugin.json version != $V"; exit 1; }
-          grep -q "@yaotechio/codex-collab@$V" .mcp.json            || { echo ".mcp.json npx version != $V"; exit 1; }
-          grep -q "@yaotechio/codex-collab@$V" hooks/hooks.json     || { echo "hooks.json npx version != $V"; exit 1; }
+          grep -q "@yaotech/codex-collab@$V" .mcp.json            || { echo ".mcp.json npx version != $V"; exit 1; }
+          grep -q "@yaotech/codex-collab@$V" hooks/hooks.json     || { echo "hooks.json npx version != $V"; exit 1; }
           echo "version $V consistent across plugin.json / .mcp.json / hooks.json"
 
       - name: Run tests
