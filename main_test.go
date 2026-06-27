@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // parseEvents must pull session id from thread.started and the final reply from
@@ -95,6 +96,42 @@ func TestRunFmtFooter(t *testing.T) {
 	}
 }
 
+func TestRuneSafeTruncation(t *testing.T) {
+	mixed := strings.Repeat("a你", 80)
+	got := firstLine(mixed)
+	if !utf8.ValidString(got) {
+		t.Fatalf("firstLine returned invalid UTF-8: %q", got)
+	}
+	if n := utf8.RuneCountInString(got); n != 121 {
+		t.Fatalf("firstLine rune count = %d, want 121", n)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Fatalf("firstLine should append ellipsis when truncated: %q", got)
+	}
+
+	text := strings.Repeat("中a", 101)
+	line := `{"type":"item.completed","item":{"type":"agent_message","text":"` + text + `"}}`
+	event := fmtEvent([]byte(line))
+	if !utf8.ValidString(event) {
+		t.Fatalf("fmtEvent returned invalid UTF-8: %q", event)
+	}
+	body := strings.TrimPrefix(event, "💬 ")
+	if n := utf8.RuneCountInString(body); n != 201 {
+		t.Fatalf("fmtEvent body rune count = %d, want 201", n)
+	}
+	if !strings.HasSuffix(body, "…") {
+		t.Fatalf("fmtEvent body should append ellipsis when truncated: %q", body)
+	}
+
+	tail := tailRunes(mixed, 7)
+	if !utf8.ValidString(tail) {
+		t.Fatalf("tailRunes returned invalid UTF-8: %q", tail)
+	}
+	if n := utf8.RuneCountInString(tail); n != 7 {
+		t.Fatalf("tailRunes rune count = %d, want 7", n)
+	}
+}
+
 // round counter: new session always allowed; resume capped at max.
 func TestRounds(t *testing.T) {
 	c := &rounds{data: map[string]*entry{}, max: 2, ttl: time.Hour}
@@ -102,16 +139,40 @@ func TestRounds(t *testing.T) {
 	if ok, _ := c.check(""); !ok {
 		t.Fatal("new session must be allowed")
 	}
-	r, rem := c.commit("s1") // round 1
+	r, rem := c.commit("s1", "read-only") // round 1
 	if r != 1 || rem != 1 {
 		t.Fatalf("round=%d rem=%d, want 1,1", r, rem)
 	}
 	if ok, _ := c.check("s1"); !ok {
 		t.Fatal("round 2 should be allowed (max 2)")
 	}
-	c.commit("s1") // round 2
+	c.commit("s1", "read-only") // round 2
 	if ok, _ := c.check("s1"); ok {
 		t.Fatal("round 3 must be rejected (max 2)")
+	}
+}
+
+func TestRoundsSandboxStoredAndPreserved(t *testing.T) {
+	c := &rounds{data: map[string]*entry{}, max: 6, ttl: time.Hour}
+	c.commit("s1", "workspace-write")
+	c.commit("s1", "read-only")
+
+	got, ok := c.sandboxOf("s1")
+	if !ok {
+		t.Fatal("sandbox should be stored")
+	}
+	if got != "workspace-write" {
+		t.Fatalf("sandbox = %q, want workspace-write", got)
+	}
+}
+
+func TestCommitSweepsExpiredSessions(t *testing.T) {
+	c := &rounds{data: map[string]*entry{}, max: 6, ttl: time.Hour}
+	c.data["old"] = &entry{count: 1, last: time.Now().Add(-2 * time.Hour), sandbox: "read-only"}
+	c.commit("new", "read-only")
+
+	if _, ok := c.data["old"]; ok {
+		t.Fatal("commit should sweep expired sessions")
 	}
 }
 

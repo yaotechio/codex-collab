@@ -45,11 +45,11 @@ func main() {
 		return
 	}
 
-	timeout = time.Duration(envInt("CODEX_MCP_TIMEOUT", 300)) * time.Second
+	timeout = time.Duration(envIntMin("CODEX_MCP_TIMEOUT", 300, 1)) * time.Second
 	counter = &rounds{
 		data: map[string]*entry{},
-		max:  envInt("CODEX_MCP_MAX_ROUNDS", 6),
-		ttl:  time.Duration(envInt("CODEX_MCP_SESSION_TTL", 24)) * time.Hour,
+		max:  envIntMin("CODEX_MCP_MAX_ROUNDS", 6, 1),
+		ttl:  time.Duration(envIntMin("CODEX_MCP_SESSION_TTL", 24, 1)) * time.Hour,
 	}
 
 	s := server.NewMCPServer("codex-collab", "0.1.0")
@@ -75,14 +75,14 @@ func main() {
 // ---- tool handler ----
 
 type out struct {
-	Success         bool   `json:"success"`
-	SessionID       string `json:"session_id,omitempty"`
-	Output          []string `json:"output,omitempty"` // codex 最终回复，按行拆分以便展开时逐行显示
+	Success         bool     `json:"success"`
+	SessionID       string   `json:"session_id,omitempty"`
+	Output          []string `json:"output,omitempty"`  // codex 最终回复，按行拆分以便展开时逐行显示
 	Process         []string `json:"process,omitempty"` // codex 的思考/执行过程轨迹（每元素一步，展开时各占一行）
-	Round           int    `json:"round,omitempty"`
-	RoundsRemaining int    `json:"rounds_remaining"`
-	LogFile         string `json:"log_file,omitempty"`
-	Error           string `json:"error,omitempty"`
+	Round           int      `json:"round,omitempty"`
+	RoundsRemaining int      `json:"rounds_remaining"`
+	LogFile         string   `json:"log_file,omitempty"`
+	Error           string   `json:"error,omitempty"`
 }
 
 func handle(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -100,8 +100,21 @@ func handle(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, 
 	confirmed := getBool(a, "confirmed", false)
 
 	// ① write gate: irreversible writes require explicit confirmation.
-	if (sandbox == "workspace-write" || sandbox == "danger-full-access") && !confirmed {
-		return result(out{Success: false, Error: fmt.Sprintf("写操作被拒绝：sandbox=%s 需要 confirmed=true（须先与用户确认定稿方案）", sandbox)})
+	effectiveSandbox := sandbox
+	if sessionID == "" {
+		if isWriteSandbox(sandbox) && !confirmed {
+			return result(out{Success: false, Error: fmt.Sprintf("写操作被拒绝：sandbox=%s 需要 confirmed=true（须先与用户确认定稿方案）", sandbox)})
+		}
+	} else if stored, ok := counter.sandboxOf(sessionID); ok {
+		effectiveSandbox = stored
+		if isWriteSandbox(stored) && !confirmed {
+			return result(out{Success: false, SessionID: sessionID, Error: fmt.Sprintf("写操作被拒绝：sandbox=%s 需要 confirmed=true（须先与用户确认定稿方案）", stored)})
+		}
+	} else {
+		effectiveSandbox = "danger-full-access"
+		if !confirmed {
+			return result(out{Success: false, SessionID: sessionID, Error: "原会话 sandbox 未知（服务可能已重启），请传 confirmed=true 或新建会话"})
+		}
 	}
 
 	// round cap (only resume sessions can exceed; a new session is always round 1).
@@ -147,8 +160,8 @@ func handle(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, 
 			emsg = fmt.Sprintf("codex 静默超过 %s 无任何输出，已判定为卡死并终止", timeout)
 		} else if emsg == "" {
 			emsg = err.Error()
-		} else if len(emsg) > 800 {
-			emsg = emsg[len(emsg)-800:]
+		} else {
+			emsg = tailRunes(emsg, 800)
 		}
 		// even on failure, hand back whatever process trace we captured so the
 		// user sees how far codex got before dying.
@@ -159,6 +172,9 @@ func handle(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, 
 	if finalID == "" {
 		finalID = sessionID
 	}
+	if sessionID == "" && sid == "" {
+		return result(out{Success: false, Process: process, LogFile: lp, Error: "codex 未返回会话 id（thread.started 缺失），无法续接"})
+	}
 	// New session: rename the temp-tagged log to the real session id so every
 	// log file is named codexmcp-<sessionId>.log. (codex has exited; file closed.)
 	if sessionID == "" && sid != "" {
@@ -166,7 +182,7 @@ func handle(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, 
 			lp = np
 		}
 	}
-	round, remaining := counter.commit(finalID)
+	round, remaining := counter.commit(finalID, effectiveSandbox)
 	body := msg
 	if returnAll {
 		body = raw
@@ -215,7 +231,7 @@ func runCodex(ctx context.Context, p params) (sessionID, lastMsg, raw, stderr st
 	// tee codex's JSONL stdout to a log file as it streams, so the user can
 	// `tail -f` it and see Codex is alive instead of staring at a spinner.
 	// ponytail: single fixed file, append mode — `tail -f` follows the latest run.
-	lf, _ := os.OpenFile(p.logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	lf, _ := os.OpenFile(p.logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if lf != nil {
 		defer lf.Close()
 		fmt.Fprintf(lf, "\n==== %s  sandbox=%s  cwd=%s ====\n>> %s\n",
@@ -243,7 +259,7 @@ func runCodex(ctx context.Context, p params) (sessionID, lastMsg, raw, stderr st
 		wd.Reset(timeout)
 		so.Write(sc.Bytes())
 		so.WriteByte('\n')
-		if s := fmtEvent(sc.Bytes()); s != "" {
+		if s := fmtEvent(sc.Bytes()); strings.TrimSpace(s) != "" {
 			// process accumulates the same human-readable lines we stream live, so
 			// the final result carries codex's full thinking/execution trace — one
 			// element per step so it renders one-per-line when the result expands.
@@ -256,9 +272,15 @@ func runCodex(ctx context.Context, p params) (sessionID, lastMsg, raw, stderr st
 			}
 		}
 	}
+	scanErr := sc.Err()
+	if scanErr != nil {
+		_ = cmd.Process.Kill()
+	}
 	err = cmd.Wait()
 	if idledOut.Load() {
 		err = errIdle
+	} else if scanErr != nil {
+		err = scanErr
 	}
 
 	sessionID, lastMsg, raw = parseEvents(so.Bytes())
@@ -283,7 +305,7 @@ func runFmt() {
 	sc := bufio.NewScanner(os.Stdin)
 	sc.Buffer(make([]byte, 1<<20), 16<<20)
 	for sc.Scan() {
-		if s := fmtEvent(sc.Bytes()); s != "" {
+		if s := fmtEvent(sc.Bytes()); strings.TrimSpace(s) != "" {
 			fmt.Fprintln(os.Stdout, s)
 		}
 		var e codexEvent
@@ -301,6 +323,9 @@ func runFmt() {
 			}
 		}
 	}
+	if err := sc.Err(); err != nil {
+		fmt.Fprintln(os.Stderr, "codexmcp fmt warning:", err)
+	}
 	fmt.Fprintln(os.Stdout, "__CODEXMCP_SESSION__="+sessionID)
 	fmt.Fprintln(os.Stdout, "__CODEXMCP_FINAL_B64__="+base64.StdEncoding.EncodeToString([]byte(lastMsg)))
 }
@@ -309,10 +334,7 @@ func firstLine(s string) string {
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = s[:i]
 	}
-	if len(s) > 120 {
-		s = s[:120] + "…"
-	}
-	return s
+	return truncRunes(s, 120)
 }
 
 // oneLine flattens any internal newlines/whitespace runs into single spaces so
@@ -338,9 +360,7 @@ func fmtEvent(b []byte) string {
 	case "item.completed":
 		// collapse internal newlines/whitespace so each trace element is one line
 		t := oneLine(e.Item.Text)
-		if len(t) > 200 {
-			t = t[:200] + "…"
-		}
+		t = truncRunes(t, 200)
 		if e.Item.Type == "agent_message" {
 			return "💬 " + t
 		}
@@ -399,8 +419,9 @@ func parseEvents(b []byte) (sessionID, lastMsg, raw string) {
 // ---- round counter (in-memory; resets on restart) ----
 
 type entry struct {
-	count int
-	last  time.Time
+	count   int
+	last    time.Time
+	sandbox string
 }
 
 type rounds struct {
@@ -429,12 +450,27 @@ func (c *rounds) check(id string) (bool, string) {
 	return true, ""
 }
 
-func (c *rounds) commit(id string) (round, remaining int) {
+func (c *rounds) sandboxOf(id string) (string, bool) {
+	if id == "" {
+		return "", false
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.sweep()
 	e := c.data[id]
 	if e == nil {
-		e = &entry{}
+		return "", false
+	}
+	return e.sandbox, true
+}
+
+func (c *rounds) commit(id, sandbox string) (round, remaining int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sweep()
+	e := c.data[id]
+	if e == nil {
+		e = &entry{sandbox: sandbox}
 		c.data[id] = e
 	}
 	e.count++
@@ -458,10 +494,13 @@ func runHook() {
 	var in struct {
 		ToolInput map[string]any `json:"tool_input"`
 	}
-	_ = json.NewDecoder(os.Stdin).Decode(&in)
+	if err := json.NewDecoder(os.Stdin).Decode(&in); err != nil || in.ToolInput == nil {
+		hookAsk()
+		os.Exit(0)
+	}
 	sandbox, _ := in.ToolInput["sandbox"].(string)
-	if sandbox == "workspace-write" || sandbox == "danger-full-access" {
-		fmt.Println(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"Codex 即将以写模式修改文件，请确认方案已定稿后再批准。"}}`)
+	if isWriteSandbox(sandbox) {
+		hookAsk()
 	}
 	os.Exit(0)
 }
@@ -475,6 +514,47 @@ func envInt(key string, def int) int {
 		}
 	}
 	return def
+}
+
+func envIntMin(key string, def, min int) int {
+	n := envInt(key, def)
+	if n < min {
+		return def
+	}
+	return n
+}
+
+func isWriteSandbox(s string) bool {
+	return s == "workspace-write" || s == "danger-full-access"
+}
+
+func hookAsk() {
+	fmt.Println(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"Codex 即将以写模式修改文件，请确认方案已定稿后再批准。"}}`)
+}
+
+func truncRunes(s string, n int) string {
+	if n <= 0 {
+		if s == "" {
+			return ""
+		}
+		return "…"
+	}
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
+}
+
+func tailRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[len(r)-n:])
+	}
+	return s
 }
 
 func getStr(m map[string]any, k, def string) string {
@@ -496,12 +576,19 @@ func getBool(m map[string]any, k string, def bool) bool {
 }
 
 // splitLines breaks a multi-line string into per-line elements so it renders
-// one-per-line when the JSON result is expanded; empty input stays nil.
+// one-per-line when the JSON result is expanded; empty/blank lines are dropped.
 func splitLines(s string) []string {
 	if s == "" {
 		return nil
 	}
-	return strings.Split(s, "\n")
+	var lines []string
+	for _, ln := range strings.Split(s, "\n") {
+		if strings.TrimSpace(ln) == "" {
+			continue
+		}
+		lines = append(lines, ln)
+	}
+	return lines
 }
 
 func result(o out) (*mcp.CallToolResult, error) {
