@@ -74,57 +74,32 @@ claude mcp add codex-collab -s user \
 claude mcp list      # 显示 codex-collab: connected
 ```
 
+源码安装还需手动开两层护栏（插件安装已自动捆绑，无需手动）：
+
+**写确认 hook**：在 `~/.claude/settings.json` 加，写模式调用会弹确认、只读放行：
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "mcp__codex-collab__codex",
+        "hooks": [ { "type": "command", "command": "<BIN> hook" } ] }
+    ]
+  }
+}
+```
+
+**协作命令**：把 `.claude/commands/codex-collab.md` 复制到 `~/.claude/commands/`（Windows：`%USERPROFILE%\.claude\commands\`），即可用 `/codex-collab`。
+
 ## 配置
 
-### 环境变量
+环境变量（插件已带默认值；要改在启动 Claude Code 前导出对应变量即可）：
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `CODEX_MCP_MAX_ROUNDS` | 6 | 单会话最大讨论轮次（硬熔断） |
 | `CODEX_MCP_TIMEOUT` | 300 | 单次 codex 调用超时（秒） |
 | `CODEX_MCP_SESSION_TTL` | 24 | 会话轮次计数保留时长（小时） |
-
-> 下面两层护栏在插件安装（方式 A）时**已自动捆绑**。以下手动步骤仅源码编译安装（方式 B）时需要。
-
-### 第二层护栏：PreToolUse Hook（推荐）
-
-让 Claude Code 在 Codex 写文件前强制弹出用户确认。在 `~/.claude/settings.json` 加：
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "mcp__codex-collab__codex",
-        "hooks": [
-          { "type": "command", "command": "<BIN> hook" }
-        ]
-      }
-    ]
-  }
-}
-```
-
-同一个二进制的 `hook` 子命令：读取本次调用参数，当 `sandbox` 为写模式时返回 `ask` 决策，只读调用直接放行。
-
-> Windows 路径写进 JSON 时反斜杠要转义（`C:\\tools\\codex-collab.exe`）或直接用正斜杠（`C:/tools/codex-collab.exe`）。配置目录在 Windows 为 `%USERPROFILE%\.claude\`。
-
-### 第三层护栏：协作协议
-
-**方式 A — slash 命令（推荐）**：把 `.claude/commands/codex-collab.md` 复制到 `~/.claude/commands/`（Windows：`%USERPROFILE%\.claude\commands\`）即可全局使用 `/codex-collab`。
-
-**方式 B — 常驻规则**：把下面片段加入项目 `CLAUDE.md`，让 Claude 始终遵守协作流程：
-
-```markdown
-## 与 Codex 协作
-涉及代码实现时，通过 codex 工具协作，按五阶段执行、不得跳步：
-1. 拆解需求，列要点与假设。
-2. 只读讨论：sandbox=read-only，复用同一 session_id 多轮迭代（≤6 轮）。
-3. 定稿并停下等用户确认，未确认不实现。
-4. 实现：用户确认后，新起会话、sandbox=workspace-write、confirmed=true 派 Codex；
-   PROMPT 前置规则——简化优先、外科手术式改动、实现后自检。
-5. 对照定稿方案逐项验收。
-```
 
 ## 使用
 
