@@ -173,8 +173,6 @@ go test ./...      # 单元测试
 go build -o codex-collab .
 ```
 
-发版见 [RELEASING.md](./RELEASING.md)——推一个 `vX.Y.Z` tag,CI 会自动发布 npm 包并创建 GitHub Release。
-
 ## License
 
 [MIT](./LICENSE)
