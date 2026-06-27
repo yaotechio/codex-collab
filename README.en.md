@@ -173,8 +173,6 @@ go test ./...      # unit tests
 go build -o codex-collab .
 ```
 
-See [RELEASING.md](./RELEASING.md) for cutting a new version — pushing a `vX.Y.Z` tag makes CI publish the npm packages and create the GitHub Release.
-
 ## License
 
 [MIT](./LICENSE)
