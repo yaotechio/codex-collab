@@ -74,57 +74,32 @@ Verify:
 claude mcp list      # shows codex-collab: connected
 ```
 
+A source install also needs the two guardrails wired up by hand (the plugin install bundles them automatically):
+
+**Write-confirmation hook** — add to `~/.claude/settings.json`; write-mode calls prompt for approval, read-only passes through:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "mcp__codex-collab__codex",
+        "hooks": [ { "type": "command", "command": "<BIN> hook" } ] }
+    ]
+  }
+}
+```
+
+**Slash command** — copy `.claude/commands/codex-collab.md` into `~/.claude/commands/` (Windows: `%USERPROFILE%\.claude\commands\`) to use `/codex-collab`.
+
 ## Configuration
 
-### Environment variables
+Environment variables (the plugin sets defaults; to override, export them before launching Claude Code):
 
 | Variable | Default | Description |
 |---|---|---|
 | `CODEX_MCP_MAX_ROUNDS` | 6 | Max debate rounds per session (hard cap) |
 | `CODEX_MCP_TIMEOUT` | 300 | Timeout for a single codex call (seconds) |
 | `CODEX_MCP_SESSION_TTL` | 24 | How long a session's round counter is retained (hours) |
-
-> The two guardrails below are **bundled automatically** by the plugin install (Option A). The manual steps are only needed for a build-from-source install (Option B).
-
-### Layer 2 guardrail: PreToolUse hook (recommended)
-
-Make Claude Code force a user confirmation before Codex writes files. Add to `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "mcp__codex-collab__codex",
-        "hooks": [
-          { "type": "command", "command": "<BIN> hook" }
-        ]
-      }
-    ]
-  }
-}
-```
-
-The same binary's `hook` subcommand reads the call's parameters: when `sandbox` is a write mode it returns an `ask` decision; read-only calls pass through.
-
-> On Windows, escape backslashes in JSON (`C:\\tools\\codex-collab.exe`) or use forward slashes (`C:/tools/codex-collab.exe`). The config dir on Windows is `%USERPROFILE%\.claude\`.
-
-### Layer 3 guardrail: the collaboration protocol
-
-**Option A — slash command (recommended):** copy `.claude/commands/codex-collab.md` into `~/.claude/commands/` (Windows: `%USERPROFILE%\.claude\commands\`) to use `/codex-collab` globally.
-
-**Option B — standing rule:** add the snippet below to your project `CLAUDE.md` so Claude always follows the collaboration flow:
-
-```markdown
-## Collaborating with Codex
-For code implementation, collaborate via the codex tool through five phases, no skipping:
-1. Decompose the request; list key points and assumptions.
-2. Read-only debate: sandbox=read-only, reuse one session_id over multiple rounds (≤6).
-3. Finalize the plan and stop for the user's confirmation; do not implement before confirmation.
-4. Implement: after confirmation, start a fresh session, sandbox=workspace-write, confirmed=true;
-   prefix the PROMPT with rules — simplicity first, surgical changes, self-check when done.
-5. Verify item by item against the finalized plan.
-```
 
 ## Usage
 
