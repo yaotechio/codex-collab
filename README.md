@@ -4,7 +4,7 @@
 
 中文 / [English](./README.en.md)
 
-Claude 拿到需求后，多轮拉起 Codex **只读讨论**方案，定稿并经你确认后，再派 Codex **写模式实现**，最后由 Claude 对照方案验收。讨论循环由 Claude 的 agent loop 驱动；本 Server 只负责「单轮执行 Codex + 会话续接 + 安全护栏」。
+Claude 拿到需求后，多轮拉起 Codex **只读讨论**方案，定稿并经你确认后，再派 Codex **写模式实现**，最后由 Claude 对照方案验收。
 
 ## 特性
 
