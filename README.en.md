@@ -2,7 +2,7 @@
 
 > A razor-thin Go MCP server that lets **Claude Code** collaborate with the local **Codex CLI**: Claude acts as architect/reviewer, Codex as the low-level implementer.
 
-[中文 README](./README.md) / English README
+[中文](./README.md) / English
 
 Claude takes a request, spins up Codex over multiple **read-only** rounds to debate the approach, finalizes a plan, and — after you confirm — sends Codex to **implement in write mode**, then verifies the result against the plan. The discussion loop is driven by Claude's agent loop; this server only handles *single-round Codex execution + session resume + safety guardrails*.
 
@@ -34,11 +34,9 @@ In Claude Code, run:
 /plugin install codex-collab@yaotechio
 ```
 
-This installs everything in one step: the `codex` MCP server, the `/codex-collab` workflow command, and the write-confirmation hook. The server ships as a prebuilt Go binary delivered over npm — the plugin launches it with `npx`, which downloads the binary for your platform on first use (cached afterwards). **No Go toolchain required.**
+One step installs the `codex` MCP server, the `/codex-collab` command, and the write-confirmation hook — ready to use (needs [Node.js](https://nodejs.org/) ≥ 16; first run takes a few seconds).
 
-**Prerequisites:** [Node.js](https://nodejs.org/) ≥ 16 (provides `npx`) and the [Codex CLI](https://github.com/openai/codex) on your PATH (already `codex login`'d).
-
-When a new version is released, run `/plugin update codex-collab@yaotechio` to upgrade (Claude Code also auto-updates plugins at startup). To override the defaults, export the env vars before launching Claude Code — the plugin reads `${CODEX_MCP_MAX_ROUNDS:-6}` etc. (see [Configuration](#configuration)).
+Update with `/plugin update codex-collab@yaotechio` (or let Claude Code auto-update at startup). To customize, see [Configuration](#configuration).
 
 > The command may appear namespaced as `/codex-collab:codex-collab` in the `/plugin` picker.
 
