@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npx -y @yaotechio/codex-collab@0.2.0 hook"
+            "command": "npx -y @yaotech/codex-collab@0.2.0 hook"
           }
         ]
       }

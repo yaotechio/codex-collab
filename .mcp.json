@@ -2,7 +2,7 @@
   "mcpServers": {
     "codex-collab": {
       "command": "npx",
-      "args": ["-y", "@yaotechio/codex-collab@0.2.0"],
+      "args": ["-y", "@yaotech/codex-collab@0.2.0"],
       "env": {
         "CODEX_MCP_MAX_ROUNDS": "${CODEX_MCP_MAX_ROUNDS:-6}",
         "CODEX_MCP_TIMEOUT": "${CODEX_MCP_TIMEOUT:-300}",

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Build the npm distribution for codex-collab into ./dist/npm:
-//   - one per-platform package (@yaotechio/codex-collab-<os>-<arch>) holding the
+//   - one per-platform package (@yaotech/codex-collab-<os>-<arch>) holding the
 //     cross-compiled Go binary, with "os"/"cpu" so npm installs only the match;
-//   - the main wrapper package (@yaotechio/codex-collab) carrying shim.js and
+//   - the main wrapper package (@yaotech/codex-collab) carrying shim.js and
 //     listing the per-platform packages as optionalDependencies.
 //
 // Usage:
@@ -57,7 +57,7 @@ const platformPkgDirs = [];
 
 console.log(`build-npm: building ${TARGETS.length} platform packages @ ${version}`);
 for (const t of TARGETS) {
-  const pkgName = `@yaotechio/codex-collab-${t.os}-${t.cpu}`;
+  const pkgName = `@yaotech/codex-collab-${t.os}-${t.cpu}`;
   const pkgDir = join(outDir, `codex-collab-${t.os}-${t.cpu}`);
   const binName = "codex-collab" + (t.os === "win32" ? ".exe" : "");
   const binPath = join(pkgDir, "bin", binName);
@@ -98,10 +98,10 @@ cpSync(join(root, "npm", "shim.js"), join(mainDir, "shim.js"));
 const mainPkg = JSON.parse(readFileSync(join(root, "npm", "package.json"), "utf8"));
 mainPkg.version = version;
 for (const t of TARGETS) {
-  mainPkg.optionalDependencies[`@yaotechio/codex-collab-${t.os}-${t.cpu}`] = version;
+  mainPkg.optionalDependencies[`@yaotech/codex-collab-${t.os}-${t.cpu}`] = version;
 }
 writeFileSync(join(mainDir, "package.json"), JSON.stringify(mainPkg, null, 2) + "\n");
-console.log(`  ✓ @yaotechio/codex-collab (main)`);
+console.log(`  ✓ @yaotech/codex-collab (main)`);
 
 if (!publish) {
   console.log(`\nbuild-npm: staged in ${outDir} (not published; pass --publish to publish)`);

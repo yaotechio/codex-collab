@@ -6,7 +6,7 @@ publishes the npm packages, and creates the GitHub Release.
 
 ## One-time setup
 
-1. **npm**: an npm account that owns the `@yaotechio` org (scoped packages).
+1. **npm**: an npm account that owns the `@yaotech` org (scoped packages).
 2. **GitHub secret**: add an npm **automation** token as the repo secret
    `NPM_TOKEN` (Settings → Secrets and variables → Actions). CI uses it to publish.
 3. The repo must be **public** (so users can `npx`/install without auth).
@@ -18,8 +18,8 @@ Before tagging, set the same `X.Y.Z` in all of these (CI hard-fails on mismatch)
 | File | Field |
 |---|---|
 | `.claude-plugin/plugin.json` | `"version"` |
-| `.mcp.json` | `npx … @yaotechio/codex-collab@X.Y.Z` |
-| `hooks/hooks.json` | `npx … @yaotechio/codex-collab@X.Y.Z hook` |
+| `.mcp.json` | `npx … @yaotech/codex-collab@X.Y.Z` |
+| `hooks/hooks.json` | `npx … @yaotech/codex-collab@X.Y.Z hook` |
 | git tag | `vX.Y.Z` |
 
 (The npm package versions and the Go `main.version` string are stamped
