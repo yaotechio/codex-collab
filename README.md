@@ -173,6 +173,11 @@ go test ./...      # 单元测试
 go build -o codex-collab .
 ```
 
+## 致谢
+
+- [GuDaStudio/codexmcp](https://github.com/GuDaStudio/codexmcp)（MIT）—— 用 MCP 桥接 Claude Code 与 Codex 的整体构想受其启发；本项目为独立的 Go 重写实现。
+- [multica-ai/andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills)（MIT）—— 协作流程中的编码原则（简化优先、外科手术式改动、目标驱动、先想后写）借鉴自该项目（源自 Andrej Karpathy 的观察）。
+
 ## License
 
 [MIT](./LICENSE)
