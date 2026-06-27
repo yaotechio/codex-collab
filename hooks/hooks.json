@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "go run github.com/yaotechio/codexmcp@v0.1.0 hook"
+            "command": "npx -y @yaotechio/codex-collab@0.2.0 hook"
           }
         ]
       }

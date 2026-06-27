@@ -1,4 +1,4 @@
-# codexmcp
+# codex-collab
 
 > A razor-thin Go MCP server that lets **Claude Code** collaborate with the local **Codex CLI**: Claude acts as architect/reviewer, Codex as the low-level implementer.
 
@@ -18,37 +18,38 @@ Cross-platform: pure Go, supports **macOS / Linux / Windows** (amd64 and arm64).
 
 ## Requirements
 
-- [Go](https://go.dev/) ≥ 1.23 (build-time only)
-- [Codex CLI](https://github.com/openai/codex) (`codex` on your PATH, already `codex login`'d; on Windows `codex.cmd`/`codex.exe` is resolved via PATH too)
 - [Claude Code](https://claude.com/claude-code)
+- [Codex CLI](https://github.com/openai/codex) (`codex` on your PATH, already `codex login`'d; on Windows `codex.cmd`/`codex.exe` is resolved via PATH too)
+- For the **plugin install (Option A)**: [Node.js](https://nodejs.org/) ≥ 16 (for `npx`) — no Go needed
+- For **build from source (Option B)**: [Go](https://go.dev/) ≥ 1.23
 
 ## Installation
 
-### Option A — Plugin marketplace (recommended, no manual build)
+### Option A — Plugin marketplace (recommended, no build, no Go)
 
 In Claude Code, run:
 
 ```
-/plugin marketplace add yaotechio/codexmcp
-/plugin install codex-collab@codexmcp
+/plugin marketplace add yaotechio/codex-collab
+/plugin install codex-collab@yaotechio
 ```
 
-This installs everything in one step: the `codex` MCP server, the `/codex-collab` workflow command, and the write-confirmation hook. The server runs straight from source via `go run` pinned to the released version (compiled and cached on first use — the first `codex` call takes ~5–15s, instant afterwards), so there's nothing to build or wire up by hand.
+This installs everything in one step: the `codex` MCP server, the `/codex-collab` workflow command, and the write-confirmation hook. The server ships as a prebuilt Go binary delivered over npm — the plugin launches it with `npx`, which downloads the binary for your platform on first use (cached afterwards). **No Go toolchain required.**
 
-**Prerequisites:** [Go](https://go.dev/) ≥ 1.23 and the [Codex CLI](https://github.com/openai/codex) on your PATH (already `codex login`'d).
+**Prerequisites:** [Node.js](https://nodejs.org/) ≥ 16 (provides `npx`) and the [Codex CLI](https://github.com/openai/codex) on your PATH (already `codex login`'d).
 
-When a new version is released, run `/plugin update codex-collab@codexmcp` to upgrade (Claude Code also auto-updates plugins at startup). To override the defaults, export the env vars before launching Claude Code — the plugin reads `${CODEX_MCP_MAX_ROUNDS:-6}` etc. (see [Configuration](#configuration)).
+When a new version is released, run `/plugin update codex-collab@yaotechio` to upgrade (Claude Code also auto-updates plugins at startup). To override the defaults, export the env vars before launching Claude Code — the plugin reads `${CODEX_MCP_MAX_ROUNDS:-6}` etc. (see [Configuration](#configuration)).
 
 > The command may appear namespaced as `/codex-collab:codex-collab` in the `/plugin` picker.
 
 ### Option B — Build from source (manual)
 
 ```bash
-git clone git@github.com:yaotechio/codexmcp.git && cd codexmcp
-make build      # auto-detects host OS/arch; produces codexmcp.exe on Windows
+git clone git@github.com:yaotechio/codex-collab.git && cd codex-collab
+make build      # auto-detects host OS/arch; produces codex-collab.exe on Windows
 ```
 
-You get the binary `./codexmcp` (`codexmcp.exe` on Windows). Note its **absolute path** — referred to below as `<BIN>`.
+You get the binary `./codex-collab` (`codex-collab.exe` on Windows). Note its **absolute path** — referred to below as `<BIN>`.
 
 To produce binaries for every platform/arch at once:
 
@@ -56,7 +57,7 @@ To produce binaries for every platform/arch at once:
 make dist        # builds linux/darwin/windows × amd64/arm64 into ./dist
 ```
 
-> Without make, just `go build -o codexmcp .`, or cross-compile with `GOOS=linux GOARCH=arm64 go build ...`.
+> Without make, just `go build -o codex-collab .`, or cross-compile with `GOOS=linux GOARCH=arm64 go build ...`.
 
 Register with Claude Code:
 
@@ -106,7 +107,7 @@ Make Claude Code force a user confirmation before Codex writes files. Add to `~/
 
 The same binary's `hook` subcommand reads the call's parameters: when `sandbox` is a write mode it returns an `ask` decision; read-only calls pass through.
 
-> On Windows, escape backslashes in JSON (`C:\\tools\\codexmcp.exe`) or use forward slashes (`C:/tools/codexmcp.exe`). The config dir on Windows is `%USERPROFILE%\.claude\`.
+> On Windows, escape backslashes in JSON (`C:\\tools\\codex-collab.exe`) or use forward slashes (`C:/tools/codex-collab.exe`). The config dir on Windows is `%USERPROFILE%\.claude\`.
 
 ### Layer 3 guardrail: the collaboration protocol
 
@@ -169,8 +170,10 @@ You can also have Claude call the `codex` tool directly; parameters below.
 
 ```bash
 go test ./...      # unit tests
-go build -o codexmcp .
+go build -o codex-collab .
 ```
+
+See [RELEASING.md](./RELEASING.md) for cutting a new version — pushing a `vX.Y.Z` tag makes CI publish the npm packages and create the GitHub Release.
 
 ## License
 

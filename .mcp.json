@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "codex-collab": {
-      "command": "go",
-      "args": ["run", "github.com/yaotechio/codexmcp@v0.1.0"],
+      "command": "npx",
+      "args": ["-y", "@yaotechio/codex-collab@0.2.0"],
       "env": {
         "CODEX_MCP_MAX_ROUNDS": "${CODEX_MCP_MAX_ROUNDS:-6}",
         "CODEX_MCP_TIMEOUT": "${CODEX_MCP_TIMEOUT:-300}",
