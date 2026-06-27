@@ -1,4 +1,4 @@
-module codexmcp
+module github.com/yaotechio/codexmcp
 
 go 1.23
 

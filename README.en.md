@@ -1,0 +1,177 @@
+# codexmcp
+
+> A razor-thin Go MCP server that lets **Claude Code** collaborate with the local **Codex CLI**: Claude acts as architect/reviewer, Codex as the low-level implementer.
+
+[中文 README](./README.md) / English README
+
+Claude takes a request, spins up Codex over multiple **read-only** rounds to debate the approach, finalizes a plan, and — after you confirm — sends Codex to **implement in write mode**, then verifies the result against the plan. The discussion loop is driven by Claude's agent loop; this server only handles *single-round Codex execution + session resume + safety guardrails*.
+
+## Features
+
+- **A single `codex` tool**, with parameters that map directly to the `codex exec` CLI.
+- **Session resume** — debates reuse one `session_id` (Codex remembers context); implementation starts a fresh session.
+- **Three layers of safety** — write operations require explicit confirmation + a PreToolUse hook forces user approval + read-only by default.
+- **Hard round cap** — a per-session debate-round limit prevents Claude↔Codex from burning tokens in an infinite back-and-forth.
+- **Single binary, zero external dependencies** — the process is spawned on demand and the Codex child process is terminated on timeout or cancellation.
+
+Cross-platform: pure Go, supports **macOS / Linux / Windows** (amd64 and arm64).
+
+## Requirements
+
+- [Go](https://go.dev/) ≥ 1.23 (build-time only)
+- [Codex CLI](https://github.com/openai/codex) (`codex` on your PATH, already `codex login`'d; on Windows `codex.cmd`/`codex.exe` is resolved via PATH too)
+- [Claude Code](https://claude.com/claude-code)
+
+## Installation
+
+### Option A — Plugin marketplace (recommended, no manual build)
+
+In Claude Code, run:
+
+```
+/plugin marketplace add yaotechio/codexmcp
+/plugin install codex-collab@codexmcp
+```
+
+This installs everything in one step: the `codex` MCP server, the `/codex-collab` workflow command, and the write-confirmation hook. The server runs straight from source via `go run` pinned to the released version (compiled and cached on first use — the first `codex` call takes ~5–15s, instant afterwards), so there's nothing to build or wire up by hand.
+
+**Prerequisites:** [Go](https://go.dev/) ≥ 1.23 and the [Codex CLI](https://github.com/openai/codex) on your PATH (already `codex login`'d).
+
+When a new version is released, run `/plugin update codex-collab@codexmcp` to upgrade (Claude Code also auto-updates plugins at startup). To override the defaults, export the env vars before launching Claude Code — the plugin reads `${CODEX_MCP_MAX_ROUNDS:-6}` etc. (see [Configuration](#configuration)).
+
+> The command may appear namespaced as `/codex-collab:codex-collab` in the `/plugin` picker.
+
+### Option B — Build from source (manual)
+
+```bash
+git clone git@github.com:yaotechio/codexmcp.git && cd codexmcp
+make build      # auto-detects host OS/arch; produces codexmcp.exe on Windows
+```
+
+You get the binary `./codexmcp` (`codexmcp.exe` on Windows). Note its **absolute path** — referred to below as `<BIN>`.
+
+To produce binaries for every platform/arch at once:
+
+```bash
+make dist        # builds linux/darwin/windows × amd64/arm64 into ./dist
+```
+
+> Without make, just `go build -o codexmcp .`, or cross-compile with `GOOS=linux GOARCH=arm64 go build ...`.
+
+Register with Claude Code:
+
+```bash
+claude mcp add codex-collab -s user \
+  -e CODEX_MCP_MAX_ROUNDS=6 \
+  -e CODEX_MCP_TIMEOUT=300 \
+  -- <BIN>
+```
+
+Verify:
+
+```bash
+claude mcp list      # shows codex-collab: connected
+```
+
+## Configuration
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `CODEX_MCP_MAX_ROUNDS` | 6 | Max debate rounds per session (hard cap) |
+| `CODEX_MCP_TIMEOUT` | 300 | Timeout for a single codex call (seconds) |
+| `CODEX_MCP_SESSION_TTL` | 24 | How long a session's round counter is retained (hours) |
+
+> The two guardrails below are **bundled automatically** by the plugin install (Option A). The manual steps are only needed for a build-from-source install (Option B).
+
+### Layer 2 guardrail: PreToolUse hook (recommended)
+
+Make Claude Code force a user confirmation before Codex writes files. Add to `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__codex-collab__codex",
+        "hooks": [
+          { "type": "command", "command": "<BIN> hook" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The same binary's `hook` subcommand reads the call's parameters: when `sandbox` is a write mode it returns an `ask` decision; read-only calls pass through.
+
+> On Windows, escape backslashes in JSON (`C:\\tools\\codexmcp.exe`) or use forward slashes (`C:/tools/codexmcp.exe`). The config dir on Windows is `%USERPROFILE%\.claude\`.
+
+### Layer 3 guardrail: the collaboration protocol
+
+**Option A — slash command (recommended):** copy `.claude/commands/codex-collab.md` into `~/.claude/commands/` (Windows: `%USERPROFILE%\.claude\commands\`) to use `/codex-collab` globally.
+
+**Option B — standing rule:** add the snippet below to your project `CLAUDE.md` so Claude always follows the collaboration flow:
+
+```markdown
+## Collaborating with Codex
+For code implementation, collaborate via the codex tool through five phases, no skipping:
+1. Decompose the request; list key points and assumptions.
+2. Read-only debate: sandbox=read-only, reuse one session_id over multiple rounds (≤6).
+3. Finalize the plan and stop for the user's confirmation; do not implement before confirmation.
+4. Implement: after confirmation, start a fresh session, sandbox=workspace-write, confirmed=true;
+   prefix the PROMPT with rules — simplicity first, surgical changes, self-check when done.
+5. Verify item by item against the finalized plan.
+```
+
+## Usage
+
+The common path — one command runs the whole flow:
+
+```
+/codex-collab optimize the sort performance of ./src/sort.go
+```
+
+Claude will: debate with Codex read-only over multiple rounds → present a **Final Plan** and ask you to confirm → after you confirm, send Codex to write files (the hook prompts for approval again) → verify against the plan and report back.
+
+You can also have Claude call the `codex` tool directly; parameters below.
+
+## `codex` tool reference
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `PROMPT` | string | yes | — | Instruction sent to Codex |
+| `cd` | string | no | `.` | Working directory (new sessions only) |
+| `sandbox` | string | no | `read-only` | `read-only` / `workspace-write` / `danger-full-access` (new sessions only) |
+| `session_id` | string | no | — | Pass to resume a session; omit to create a new one |
+| `skip_git_repo_check` | bool | no | false | Allow running outside a git repo |
+| `model` | string | no | — | Pick a specific Codex model |
+| `return_all_messages` | bool | no | false | Return the full reasoning/tool-call event stream |
+| `confirmed` | bool | no | false | Must be true for write mode, otherwise rejected |
+
+> Note: when resuming via `session_id`, `sandbox`/`cd` are locked to the original session — passing them has no effect. This guarantees debate sessions stay read-only.
+
+### Return value (JSON)
+
+| Field | Description |
+|---|---|
+| `success` | Whether this round succeeded |
+| `session_id` | Session id (returned on creation, for later resume) |
+| `output` | Codex's final reply / patch; the full event stream when `return_all_messages=true` |
+| `round` | Rounds completed in this session |
+| `rounds_remaining` | Rounds left |
+| `error` | Structured error on failure |
+
+## Development
+
+```bash
+go test ./...      # unit tests
+go build -o codexmcp .
+```
+
+## License
+
+[MIT](./LICENSE)

@@ -1,0 +1,16 @@
+{
+  "name": "codex-collab",
+  "version": "0.1.0",
+  "description": "让 Claude Code 与本机 Codex CLI 协作：Claude 作架构师/审查者，Codex 作底层实现者（讨论→定稿→实现→验收）。Claude (architect/reviewer) collaborates with the local Codex CLI (implementer).",
+  "author": {
+    "name": "liuyao",
+    "url": "https://github.com/yaotechio"
+  },
+  "homepage": "https://github.com/yaotechio/codexmcp",
+  "repository": "https://github.com/yaotechio/codexmcp",
+  "license": "MIT",
+  "keywords": ["codex", "mcp", "claude-code", "collaboration", "code-review"],
+  "commands": ["./.claude/commands/codex-collab.md"],
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json"
+}

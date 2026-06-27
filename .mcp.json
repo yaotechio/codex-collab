@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "codex-collab": {
+      "command": "go",
+      "args": ["run", "github.com/yaotechio/codexmcp@v0.1.0"],
+      "env": {
+        "CODEX_MCP_MAX_ROUNDS": "${CODEX_MCP_MAX_ROUNDS:-6}",
+        "CODEX_MCP_TIMEOUT": "${CODEX_MCP_TIMEOUT:-300}",
+        "CODEX_MCP_SESSION_TTL": "${CODEX_MCP_SESSION_TTL:-24}"
+      }
+    }
+  }
+}

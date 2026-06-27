@@ -1,0 +1,15 @@
+{
+  "name": "codexmcp",
+  "description": "Claude↔Codex 本地协作 MCP：Claude 作架构师/审查者，Codex 作底层实现者。",
+  "owner": {
+    "name": "liuyao",
+    "url": "https://github.com/yaotechio"
+  },
+  "plugins": [
+    {
+      "name": "codex-collab",
+      "source": "./",
+      "description": "Claude↔Codex 协作 MCP：只读多轮讨论→定稿确认→写模式实现→对照验收"
+    }
+  ]
+}
