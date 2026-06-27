@@ -173,6 +173,11 @@ go test ./...      # unit tests
 go build -o codex-collab .
 ```
 
+## Acknowledgments
+
+- [GuDaStudio/codexmcp](https://github.com/GuDaStudio/codexmcp) (MIT) — the idea of bridging Claude Code and Codex over MCP; this project is an independent Go reimplementation inspired by it.
+- [multica-ai/andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills) (MIT) — the coding principles in the collaboration workflow (simplicity first, surgical changes, goal-driven, think before coding) are adapted from it (originally from Andrej Karpathy's observations).
+
 ## License
 
 [MIT](./LICENSE)
