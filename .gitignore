@@ -4,3 +4,5 @@
 .DS_Store
 .idea/
 node_modules/
+# 本地发版备忘，不公开
+/RELEASING.md
