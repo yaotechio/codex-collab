@@ -34,7 +34,9 @@ In Claude Code, run:
 /plugin install codex-collab@yaotechio
 ```
 
-One step installs the `codex` MCP server, the `/codex-collab` command, and the write-confirmation hook — ready to use (needs [Node.js](https://nodejs.org/) ≥ 16; first run takes a few seconds).
+One step installs the `codex` MCP server, the `/codex-collab` command, and the write-confirmation hook (needs [Node.js](https://nodejs.org/) ≥ 16; first run takes a few seconds).
+
+After installing, **restart Claude Code** (or run `/reload-plugins`) so the MCP server connects.
 
 Update with `/plugin update codex-collab@yaotechio` (or let Claude Code auto-update at startup). To customize, see [Configuration](#configuration).
 
