@@ -115,6 +115,11 @@ You can also have Claude call the `codex` tool directly; parameters below.
 
 ## `codex` tool reference
 
+Normal use goes through `/codex-collab`; if you want to call the `codex` tool directly (advanced), expand for parameters and return value:
+
+<details>
+<summary>Parameters and return value</summary>
+
 ### Parameters
 
 | Parameter | Type | Required | Default | Description |
@@ -140,6 +145,8 @@ You can also have Claude call the `codex` tool directly; parameters below.
 | `round` | Rounds completed in this session |
 | `rounds_remaining` | Rounds left |
 | `error` | Structured error on failure |
+
+</details>
 
 ## Development
 
