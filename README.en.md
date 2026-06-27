@@ -4,7 +4,7 @@
 
 [中文](./README.md) / English
 
-Claude takes a request, spins up Codex over multiple **read-only** rounds to debate the approach, finalizes a plan, and — after you confirm — sends Codex to **implement in write mode**, then verifies the result against the plan. The discussion loop is driven by Claude's agent loop; this server only handles *single-round Codex execution + session resume + safety guardrails*.
+Claude takes a request, spins up Codex over multiple **read-only** rounds to debate the approach, finalizes a plan, and — after you confirm — sends Codex to **implement in write mode**, then verifies the result against the plan.
 
 ## Features
 
