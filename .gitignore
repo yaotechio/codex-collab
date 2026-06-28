@@ -6,3 +6,5 @@
 node_modules/
 # 本地发版备忘，不公开
 /RELEASING.md
+# 内部需求稿，不公开
+/需求文档.md
