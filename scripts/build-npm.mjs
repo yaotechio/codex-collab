@@ -109,9 +109,11 @@ if (!publish) {
 }
 
 // Publish platform packages first so the main package's optionalDependencies resolve.
+// Run npm from the repo root (where CI's auth .npmrc lives) and pass the package
+// directory as an argument, so the auth token is found regardless of subdir cwd.
 console.log(`\nbuild-npm: publishing to npm…`);
 for (const dir of platformPkgDirs) {
-  run("npm", ["publish", "--access", "public"], { cwd: dir });
+  run("npm", ["publish", dir, "--access", "public"], { cwd: root });
 }
-run("npm", ["publish", "--access", "public"], { cwd: mainDir });
+run("npm", ["publish", mainDir, "--access", "public"], { cwd: root });
 console.log(`build-npm: published @ ${version}`);
