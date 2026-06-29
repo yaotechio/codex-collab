@@ -10,7 +10,7 @@
   "repository": "https://github.com/yaotechio/codex-collab",
   "license": "MIT",
   "keywords": ["codex", "mcp", "claude-code", "collaboration", "code-review"],
-  "commands": ["./.claude/commands/codex-collab.md"],
+  "commands": ["./.claude/commands/flow.md"],
   "mcpServers": "./.mcp.json",
   "hooks": "./hooks/hooks.json"
 }

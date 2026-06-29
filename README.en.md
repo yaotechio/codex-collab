@@ -34,13 +34,13 @@ In Claude Code, run:
 /plugin install codex-collab@yaotechio
 ```
 
-One step installs the `codex` MCP server, the `/codex-collab` command, and the write-confirmation hook (needs [Node.js](https://nodejs.org/) ≥ 16; first run takes a few seconds).
+One step installs the `codex` MCP server, the `/codex-collab:flow` command, and the write-confirmation hook (needs [Node.js](https://nodejs.org/) ≥ 16; first run takes a few seconds).
 
 After installing, **restart Claude Code** (or run `/reload-plugins`) so the MCP server connects.
 
 Update with `/plugin update codex-collab@yaotechio` (or let Claude Code auto-update at startup). To customize, see [Configuration](#configuration).
 
-> The command may appear namespaced as `/codex-collab:codex-collab` in the `/plugin` picker.
+> The command's full name is `/codex-collab:flow` (plugin `codex-collab` + command `flow`), shown that way in the `/plugin` picker.
 
 ### Option B — Build from source (manual)
 
@@ -89,7 +89,7 @@ A source install also needs the two guardrails wired up by hand (the plugin inst
 }
 ```
 
-**Slash command** — copy `.claude/commands/codex-collab.md` into `~/.claude/commands/` (Windows: `%USERPROFILE%\.claude\commands\`) to use `/codex-collab`.
+**Slash command** — copy `.claude/commands/flow.md` into `~/.claude/commands/` (Windows: `%USERPROFILE%\.claude\commands\`) to use `/codex-collab:flow`.
 
 ## Configuration
 
@@ -106,7 +106,7 @@ Environment variables (the plugin sets defaults; to override, export them before
 The common path — one command runs the whole flow:
 
 ```
-/codex-collab optimize the sort performance of ./src/sort.go
+/codex-collab:flow optimize the sort performance of ./src/sort.go
 ```
 
 Claude will: debate with Codex read-only over multiple rounds → present a **Final Plan** and ask you to confirm → after you confirm, send Codex to write files (the hook prompts for approval again) → verify against the plan and report back.
@@ -115,7 +115,7 @@ You can also have Claude call the `codex` tool directly; parameters below.
 
 ## `codex` tool reference
 
-Normal use goes through `/codex-collab`; if you want to call the `codex` tool directly (advanced), expand for parameters and return value:
+Normal use goes through `/codex-collab:flow`; if you want to call the `codex` tool directly (advanced), expand for parameters and return value:
 
 <details>
 <summary>Parameters and return value</summary>
