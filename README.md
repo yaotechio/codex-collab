@@ -1,10 +1,10 @@
 # codex-collab
 
-> 一个极薄的 Go MCP Server，让 **Claude Code** 与本机 **Codex CLI** 协作：Claude 作架构师/审查者，Codex 作底层实现者。
+> 极简 Go MCP 服务器，让 **Claude Code** 与 **Codex CLI** 平等协作、相互质疑、共商方案，最终由 Codex 落地实现——并肩合作，而非指挥。
 
 中文 / [English](./README.en.md)
 
-Claude 拿到需求后，多轮拉起 Codex **只读讨论**方案，定稿并经你确认后，再派 Codex **写模式实现**，最后由 Claude 对照方案验收。
+Claude 拿到需求后先亮出己见，与 Codex 多轮**只读对等辩论**、相互质疑收敛出方案；经你确认后交由 Codex **写模式实现**，最后对照方案验收。
 
 ## 特性
 

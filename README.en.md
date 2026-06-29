@@ -1,10 +1,10 @@
 # codex-collab
 
-> A razor-thin Go MCP server that lets **Claude Code** collaborate with the local **Codex CLI**: Claude acts as architect/reviewer, Codex as the low-level implementer.
+> A minimal Go MCP server that lets **Claude Code** and **Codex CLI** collaborate as equals — challenging each other, deciding the plan together, with Codex landing the implementation. Side by side, not top-down.
 
 [中文](./README.md) / English
 
-Claude takes a request, spins up Codex over multiple **read-only** rounds to debate the approach, finalizes a plan, and — after you confirm — sends Codex to **implement in write mode**, then verifies the result against the plan.
+Claude takes a request, puts forward its own take, then debates the approach with Codex as a peer over multiple **read-only** rounds — each challenging the other until they converge. After you confirm, Codex **implements in write mode**, and the result is verified against the plan.
 
 ## Features
 
