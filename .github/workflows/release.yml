@@ -19,7 +19,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "20"
-          registry-url: "https://registry.npmjs.org"
 
       - name: Derive version from tag
         id: ver
@@ -38,9 +37,17 @@ jobs:
         run: go test ./...
 
       - name: Build & publish npm packages
-        run: node scripts/build-npm.mjs --version "${{ steps.ver.outputs.version }}" --publish
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "::error::NPM_TOKEN secret is empty or not set — add it under Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$HOME/.npmrc"
+          echo "wrote $HOME/.npmrc; whoami:"
+          npm whoami || { echo "::error::npm whoami failed — NPM_TOKEN is invalid or lacks access"; exit 1; }
+          node scripts/build-npm.mjs --version "${{ steps.ver.outputs.version }}" --publish
 
       - name: Build raw binaries for the GitHub Release
         run: make dist VERSION="${{ steps.ver.outputs.version }}"
